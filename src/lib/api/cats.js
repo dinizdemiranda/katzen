@@ -60,3 +60,17 @@ export async function deleteCat(catId) {
 	const { error } = await supabase.from('cats').delete().eq('id', catId);
 	if (error) throw error;
 }
+
+/** Uploads a cat photo and returns its public URL. Path is "<litterId>/<catId>/<file>",
+ *  which the storage RLS policies use to enforce litter membership. */
+export async function uploadCatPhoto(litterId, catId, file) {
+	const ext = file.name.split('.').pop();
+	const path = `${litterId}/${catId}/${Date.now()}.${ext}`;
+	const { error: uploadError } = await supabase.storage
+		.from('cat-photos')
+		.upload(path, file, { upsert: true });
+	if (uploadError) throw uploadError;
+
+	const { data } = supabase.storage.from('cat-photos').getPublicUrl(path);
+	return data.publicUrl;
+}

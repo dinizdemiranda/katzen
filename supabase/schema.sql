@@ -246,3 +246,37 @@ create policy "weigh_ins_all" on public.weigh_ins for all
 create policy "vomit_events_all" on public.vomit_events for all
   using (public.is_litter_member(public.litter_id_for_cat(cat_id)))
   with check (public.is_litter_member(public.litter_id_for_cat(cat_id)));
+
+-- ============================================================
+-- Storage (cat photos)
+-- ============================================================
+
+-- Public bucket: reads go through the public URL endpoint and bypass RLS entirely,
+-- which is fine — a cat photo isn't sensitive. Writes always go through the
+-- authenticated API, so they still need explicit policies below. Files are stored
+-- as "<litter_id>/<cat_id>/<filename>", so the first path segment doubles as the
+-- litter-membership check.
+insert into storage.buckets (id, name, public)
+values ('cat-photos', 'cat-photos', true)
+on conflict (id) do nothing;
+
+create policy "cat_photos_select" on storage.objects for select
+  using (bucket_id = 'cat-photos');
+
+create policy "cat_photos_insert" on storage.objects for insert
+  with check (
+    bucket_id = 'cat-photos'
+    and public.is_litter_member(((storage.foldername(name))[1])::uuid)
+  );
+
+create policy "cat_photos_update" on storage.objects for update
+  using (
+    bucket_id = 'cat-photos'
+    and public.is_litter_member(((storage.foldername(name))[1])::uuid)
+  );
+
+create policy "cat_photos_delete" on storage.objects for delete
+  using (
+    bucket_id = 'cat-photos'
+    and public.is_litter_member(((storage.foldername(name))[1])::uuid)
+  );

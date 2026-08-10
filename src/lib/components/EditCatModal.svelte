@@ -1,9 +1,13 @@
 <script>
 	import { goto } from '$app/navigation';
 	import Modal from '$lib/components/Modal.svelte';
-	import { updateCat, deleteCat } from '$lib/api/cats.js';
+	import InitialsAvatar from '$lib/components/InitialsAvatar.svelte';
+	import { updateCat, deleteCat, uploadCatPhoto } from '$lib/api/cats.js';
 	import { refreshCats } from '$lib/state/app.svelte.js';
 	import { showToast } from '$lib/state/toast.svelte.js';
+	import { getInitials } from '$lib/utils/initials.js';
+
+	const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
 	let { cat, onclose, onsaved } = $props();
 
@@ -11,11 +15,26 @@
 	let birthday = $state(cat.birthday ?? '');
 	let gender = $state(cat.gender ?? '');
 	let microchipNumber = $state(cat.microchip_number ?? '');
+	let photoFile = $state(null);
+	let photoPreview = $state(cat.photo_url);
 	let saving = $state(false);
 	let removing = $state(false);
 	let error = $state('');
 
 	const canSubmit = $derived(name.trim() && gender);
+
+	function onPhotoChange(event) {
+		const file = event.target.files?.[0];
+		if (!file) return;
+		if (file.size > MAX_PHOTO_BYTES) {
+			error = 'Photo must be under 5MB';
+			event.target.value = '';
+			return;
+		}
+		error = '';
+		photoFile = file;
+		photoPreview = URL.createObjectURL(file);
+	}
 
 	async function submit(event) {
 		event.preventDefault();
@@ -23,11 +42,16 @@
 		saving = true;
 		error = '';
 		try {
+			let photoUrl = cat.photo_url;
+			if (photoFile) {
+				photoUrl = await uploadCatPhoto(cat.litter_id, cat.id, photoFile);
+			}
 			await updateCat(cat.id, {
 				name: name.trim(),
 				birthday: birthday || null,
 				gender,
-				microchip_number: microchipNumber.trim() || null
+				microchip_number: microchipNumber.trim() || null,
+				photo_url: photoUrl
 			});
 			await refreshCats();
 			onsaved?.();
@@ -59,6 +83,19 @@
 
 <Modal title="Edit {cat.name}" {onclose}>
 	<form onsubmit={submit}>
+		<label class="photo-field">
+			Photo
+			<span class="photo-picker">
+				{#if photoPreview}
+					<img class="photo-preview" src={photoPreview} alt={cat.name} />
+				{:else}
+					<InitialsAvatar text={getInitials(cat.name)} color={cat.color} size={72} />
+				{/if}
+				<span class="photo-change">Change photo</span>
+				<input type="file" accept="image/*" onchange={onPhotoChange} />
+			</span>
+		</label>
+
 		<label>
 			Name
 			<input type="text" bind:value={name} placeholder="Cat name" required />
@@ -172,6 +209,36 @@
 
 	.pill-option input {
 		position: absolute;
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.photo-picker {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.4rem;
+		width: fit-content;
+		cursor: pointer;
+	}
+
+	.photo-preview {
+		width: 72px;
+		height: 72px;
+		border-radius: 50%;
+		object-fit: cover;
+	}
+
+	.photo-change {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--color-primary);
+	}
+
+	.photo-picker input[type='file'] {
+		position: absolute;
+		width: 1px;
+		height: 1px;
 		opacity: 0;
 		pointer-events: none;
 	}
