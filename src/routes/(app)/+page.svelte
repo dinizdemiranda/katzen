@@ -66,14 +66,11 @@
 		selectedCatId === 'all' ? vomitCats : vomitCats.filter((c) => c.id === selectedCatId)
 	);
 
-	const calendarEvents = $derived.by(() => {
-		const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-		return vomitEvents.filter(
-			(v) =>
-				(selectedCatId === 'all' || v.cat_id === selectedCatId) &&
-				new Date(v.created_at).getTime() >= cutoff
-		);
-	});
+	// Cat-filtered only — PukeCalendar windows this itself by periodDays, and needs
+	// history further back than the visible range to compute the previous-period trend.
+	const filteredVomitEvents = $derived(
+		selectedCatId === 'all' ? vomitEvents : vomitEvents.filter((v) => v.cat_id === selectedCatId)
+	);
 
 	function catNameFor(catId) {
 		return vomitCats.find((c) => c.id === catId)?.name ?? 'Cat';
@@ -90,6 +87,27 @@
 			<p class="eyebrow">{litterState.litter?.name}</p>
 			<h1>Dashboard</h1>
 		</div>
+
+		{#if litterState.cats.length > 0}
+			<div class="filters">
+				<label class="filter">
+					<span>Cat</span>
+					<select bind:value={selectedCatId}>
+						{#each filterCatOptions as cat (cat.id)}
+							<option value={cat.id}>{cat.name}</option>
+						{/each}
+					</select>
+				</label>
+				<label class="filter">
+					<span>Period</span>
+					<select bind:value={periodDays}>
+						{#each PERIOD_OPTIONS as opt (opt.days)}
+							<option value={opt.days}>{opt.label}</option>
+						{/each}
+					</select>
+				</label>
+			</div>
+		{/if}
 	</header>
 
 	{#if litterState.cats.length === 0}
@@ -107,27 +125,6 @@
 			<div class="skeleton-line skeleton-graph"></div>
 		</div>
 	{:else}
-		<section class="card filter-bar">
-			<label class="filter">
-				<span>Cat</span>
-				<select bind:value={selectedCatId}>
-					{#each filterCatOptions as cat (cat.id)}
-						<option value={cat.id}>{cat.name}</option>
-					{/each}
-				</select>
-			</label>
-			<div class="filter">
-				<span>Weight period</span>
-				<div class="period-pills">
-					{#each PERIOD_OPTIONS as opt (opt.days)}
-						<button class:active={periodDays === opt.days} onclick={() => (periodDays = opt.days)}>
-							{opt.label}
-						</button>
-					{/each}
-				</div>
-			</div>
-		</section>
-
 		<section class="card">
 			<div class="card-header">
 				<h2>Weight Loss</h2>
@@ -143,7 +140,8 @@
 			</div>
 			<PukeCalendar
 				cats={calendarCats}
-				events={calendarEvents}
+				events={filteredVomitEvents}
+				{periodDays}
 				onSelectEvent={(ev) => (editingVomitEvent = ev)}
 			/>
 		</section>
@@ -182,8 +180,8 @@
 
 	.page-header {
 		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
+		flex-direction: column;
+		gap: 0.75rem;
 	}
 
 	.eyebrow {
@@ -198,18 +196,10 @@
 		font-size: 1.4rem;
 	}
 
-	.card {
-		background: var(--color-surface);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-card);
-		padding: 1.1rem 1.1rem 1.25rem;
-	}
-
-	.filter-bar {
+	.filters {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 1rem;
-		padding: 0.9rem 1.1rem;
 	}
 
 	.filter {
@@ -225,33 +215,25 @@
 		padding: 0.5rem 0.7rem;
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-sm);
-		background: var(--color-bg);
+		background: var(--color-surface);
 		color: var(--color-text);
 		font-size: 0.85rem;
 		font-weight: 400;
 	}
 
-	.period-pills {
-		display: flex;
-		gap: 0.35rem;
+	@media (min-width: 860px) {
+		.page-header {
+			flex-direction: row;
+			align-items: center;
+			justify-content: space-between;
+		}
 	}
 
-	.period-pills button {
-		border: 1px solid var(--color-border);
-		background: var(--color-bg);
-		color: var(--color-text-muted);
-		font-size: 0.75rem;
-		font-weight: 600;
-		padding: 0.4rem 0.65rem;
-		border-radius: 999px;
-		cursor: pointer;
-		white-space: nowrap;
-	}
-
-	.period-pills button.active {
-		background: var(--color-primary);
-		border-color: var(--color-primary);
-		color: var(--color-primary-text);
+	.card {
+		background: var(--color-surface);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-card);
+		padding: 1.1rem 1.1rem 1.25rem;
 	}
 
 	.card-header {

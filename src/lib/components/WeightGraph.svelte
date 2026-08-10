@@ -2,6 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import { Chart } from '$lib/chartSetup.js';
 	import { sevenDayAverageSeries, seriesDelta } from '$lib/utils/rollingAverage.js';
+	import CatAvatar from '$lib/components/CatAvatar.svelte';
 
 	let { cats, weighIns } = $props();
 
@@ -84,19 +85,22 @@
 		<div class="canvas-box">
 			<canvas bind:this={canvasEl}></canvas>
 		</div>
-		<ul class="legend">
+		<div class="legend-list">
+
 			{#each catSeries as { cat, delta } (cat.id)}
-				<li>
-					<span class="dot" style:background={cat.color}></span>
+			<div class="cat-legend">
+				<div class="cat-header">
+					<CatAvatar {cat} size={22} borderColor={cat.color} />
 					<span class="name">{cat.name}</span>
-					{#if delta !== null}
-						<span class="delta" class:up={delta > 0} class:down={delta < 0}>
-							{delta === 0 ? '—' : `${delta > 0 ? '↑' : '↓'} ${Math.abs(delta).toFixed(2)} kg`}
-						</span>
-					{/if}
-				</li>
+				</div>
+				{#if delta !== null}
+				<span class="delta" class:up={delta > 0} class:down={delta < 0}>
+					{delta === 0 ? '—' : `${delta > 0 ? '↑' : '↓'} ${Math.abs(delta).toFixed(2)} kg`}
+				</span>
+				{/if}
+			</div>
 			{/each}
-		</ul>
+		</div>
 	{:else}
 		<p class="empty">No weigh-ins yet. Log one to start the graph.</p>
 	{/if}
@@ -104,9 +108,10 @@
 
 <style>
 	.graph-wrap {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
+		display: grid;
+		
+		gap: 16px;
+		width: 100%;
 	}
 
 	.canvas-box {
@@ -125,7 +130,7 @@
 
 	@media (min-width: 860px) {
 		.graph-wrap {
-			flex-direction: row;
+			grid-template-columns: 1fr auto;
 			align-items: stretch;
 		}
 
@@ -143,6 +148,11 @@
 			flex-shrink: 0;
 			padding-top: 0.25rem;
 		}
+		.legend-list {
+			flex-direction: column;
+			width: 100%;
+			gap: 16px;
+		}
 	}
 
 	.legend li {
@@ -153,16 +163,12 @@
 		color: var(--color-text-muted);
 	}
 
-	.dot {
-		width: 9px;
-		height: 9px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
 	.name {
 		color: var(--color-text);
 		font-weight: 600;
+	}
+	.delta {
+		font-size: 0.875em;
 	}
 
 	.delta.up {
@@ -178,5 +184,20 @@
 		font-size: 0.9rem;
 		padding: 1.5rem 0;
 		text-align: center;
+	}
+	.cat-legend {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.cat-header {
+		display: flex;
+		gap: 4px;
+		align-items: center;
+	}
+	.legend-list {
+		display: flex;
+		gap: 24px;
+
 	}
 </style>
