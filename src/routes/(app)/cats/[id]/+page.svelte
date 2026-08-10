@@ -4,6 +4,8 @@
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import CatAvatar from '$lib/components/CatAvatar.svelte';
 	import EditCatModal from '$lib/components/EditCatModal.svelte';
+	import EditWeighInModal from '$lib/components/EditWeighInModal.svelte';
+	import EditVomitModal from '$lib/components/EditVomitModal.svelte';
 	import { formatBirthday, formatAge } from '$lib/utils/catDates.js';
 	import { listWeighInsForCat } from '$lib/api/weighIns.js';
 	import { listVomitEventsForCat } from '$lib/api/vomitEvents.js';
@@ -17,6 +19,8 @@
 	let loaded = $state(false);
 	let historyFilter = $state('all');
 	let showEditCat = $state(false);
+	let editingWeighIn = $state(null);
+	let editingVomitEvent = $state(null);
 
 	async function loadHistory(catId) {
 		loaded = false;
@@ -119,13 +123,18 @@
 				<ul class="weigh-in-list">
 					{#each recentWeighIns as w (w.id)}
 						<li>
-							<span class="wi-date">{formatDateTime(w.created_at)}</span>
-							<span class="wi-weight">{Number(w.weight).toFixed(2)} kg</span>
-							{#if w.trend}
-								<span class="wi-trend trend-{w.trend.cls}">{w.trend.arrow}</span>
-							{:else}
-								<span class="wi-trend trend-flat">—</span>
-							{/if}
+							<button class="row-button" onclick={() => (editingWeighIn = w)}>
+								<span class="wi-date">
+									{formatDateTime(w.created_at)}
+									{#if w.notes}<span class="note-flag" title={w.notes}>📝</span>{/if}
+								</span>
+								<span class="wi-weight">{Number(w.weight).toFixed(2)} kg</span>
+								{#if w.trend}
+									<span class="wi-trend trend-{w.trend.cls}">{w.trend.arrow}</span>
+								{:else}
+									<span class="wi-trend trend-flat">—</span>
+								{/if}
+							</button>
 						</li>
 					{/each}
 				</ul>
@@ -156,24 +165,34 @@
 				<ul class="history-list">
 					{#each historyItems as item (`${item.type}-${item.type === 'weight' ? item.weighIn.id : item.vomitEvent.id}`)}
 						<li>
-							<span class="history-icon" class:vomit={item.type === 'vomit'}>
-								{item.type === 'weight' ? '⚖️' : '🤮'}
-							</span>
-							<div class="history-body">
-								{#if item.type === 'weight'}
-									<p class="history-title">
-										Weighed in at {Number(item.weighIn.weight).toFixed(2)} kg
-										{#if item.weighIn.trend}
-											<span class="wi-trend trend-{item.weighIn.trend.cls}">{item.weighIn.trend.arrow}</span>
-										{/if}
-									</p>
-								{:else}
-									<p class="history-title">
-										{contentLabel(item.vomitEvent.content)} · {amountLabel(item.vomitEvent.amount)}
-									</p>
-								{/if}
-								<p class="history-date">{formatDateTime(item.date)}</p>
-							</div>
+							<button
+								class="row-button history-row"
+								onclick={() =>
+									item.type === 'weight'
+										? (editingWeighIn = item.weighIn)
+										: (editingVomitEvent = item.vomitEvent)}
+							>
+								<span class="history-icon" class:vomit={item.type === 'vomit'}>
+									{item.type === 'weight' ? '⚖️' : '🤮'}
+								</span>
+								<div class="history-body">
+									{#if item.type === 'weight'}
+										<p class="history-title">
+											Weighed in at {Number(item.weighIn.weight).toFixed(2)} kg
+											{#if item.weighIn.trend}
+												<span class="wi-trend trend-{item.weighIn.trend.cls}">{item.weighIn.trend.arrow}</span>
+											{/if}
+											{#if item.weighIn.notes}<span class="note-flag" title={item.weighIn.notes}>📝</span>{/if}
+										</p>
+									{:else}
+										<p class="history-title">
+											{contentLabel(item.vomitEvent.content)} · {amountLabel(item.vomitEvent.amount)}
+											{#if item.vomitEvent.notes}<span class="note-flag" title={item.vomitEvent.notes}>📝</span>{/if}
+										</p>
+									{/if}
+									<p class="history-date">{formatDateTime(item.date)}</p>
+								</div>
+							</button>
 						</li>
 					{/each}
 				</ul>
@@ -184,6 +203,26 @@
 
 {#if showEditCat && cat}
 	<EditCatModal {cat} onclose={() => (showEditCat = false)} />
+{/if}
+
+{#if editingWeighIn}
+	<EditWeighInModal
+		weighIn={editingWeighIn}
+		catName={cat.name}
+		catBirthday={cat.birthday}
+		onclose={() => (editingWeighIn = null)}
+		onsaved={() => loadHistory(cat.id)}
+	/>
+{/if}
+
+{#if editingVomitEvent}
+	<EditVomitModal
+		vomitEvent={editingVomitEvent}
+		catName={cat.name}
+		catBirthday={cat.birthday}
+		onclose={() => (editingVomitEvent = null)}
+		onsaved={() => loadHistory(cat.id)}
+	/>
 {/if}
 
 <style>
@@ -306,16 +345,35 @@
 	}
 
 	.weigh-in-list li {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.55rem 0;
 		border-top: 1px solid var(--color-border);
-		font-size: 0.85rem;
 	}
 
 	.weigh-in-list li:first-child {
 		border-top: none;
+	}
+
+	.row-button {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.55rem 0;
+		border: none;
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.weigh-in-list .row-button {
+		font-size: 0.85rem;
+	}
+
+	.note-flag {
+		margin-left: 0.3rem;
+		font-size: 0.8rem;
+		cursor: help;
 	}
 
 	.wi-date {
@@ -402,10 +460,6 @@
 	}
 
 	.history-list li {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.6rem 0;
 		border-top: 1px solid var(--color-border);
 	}
 

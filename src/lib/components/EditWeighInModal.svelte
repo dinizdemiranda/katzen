@@ -1,36 +1,31 @@
 <script>
 	import Modal from '$lib/components/Modal.svelte';
-	import { addWeighIn } from '$lib/api/weighIns.js';
-	import { auth, refreshCats } from '$lib/state/app.svelte.js';
+	import { updateWeighIn, deleteWeighIn } from '$lib/api/weighIns.js';
+	import { refreshCats } from '$lib/state/app.svelte.js';
 	import { showToast } from '$lib/state/toast.svelte.js';
 	import { toDatetimeLocalValue } from '$lib/utils/datetimeLocal.js';
 
-	let { cats, onclose, oncreated } = $props();
+	let { weighIn, catName, catBirthday, onclose, onsaved } = $props();
 
 	const maxDateTime = toDatetimeLocalValue(new Date());
+	const minDateTime = catBirthday ? `${catBirthday}T00:00` : undefined;
 
-	let selectedCatId = $state(cats[0]?.id ?? null);
-	let occurredAt = $state(maxDateTime);
-	let useDelta = $state(true);
-	let personWeight = $state('');
-	let personCatWeight = $state('');
-	let directWeight = $state('');
-	let notes = $state('');
+	let occurredAt = $state(toDatetimeLocalValue(new Date(weighIn.created_at)));
+	let useDelta = $state(weighIn.method === 'delta');
+	let personWeight = $state(weighIn.person_weight ?? '');
+	let personCatWeight = $state(weighIn.person_cat_weight ?? '');
+	let directWeight = $state(weighIn.method === 'direct' ? weighIn.weight : '');
+	let notes = $state(weighIn.notes ?? '');
 	let saving = $state(false);
+	let removing = $state(false);
 	let error = $state('');
 
-	const selectedCat = $derived(cats.find((c) => c.id === selectedCatId));
-	const minDateTime = $derived(selectedCat?.birthday ? `${selectedCat.birthday}T00:00` : undefined);
-
 	const computedWeight = $derived(
-		useDelta
-			? Number(personCatWeight) - Number(personWeight)
-			: Number(directWeight)
+		useDelta ? Number(personCatWeight) - Number(personWeight) : Number(directWeight)
 	);
 
 	const canSubmit = $derived(
-		selectedCatId &&
-			occurredAt &&
+		occurredAt &&
 			(useDelta
 				? personWeight !== '' && personCatWeight !== '' && computedWeight > 0
 				: directWeight !== '' && computedWeight > 0)
@@ -42,44 +37,44 @@
 		saving = true;
 		error = '';
 		try {
-			const catName = selectedCat?.name ?? 'Cat';
-			await addWeighIn({
-				catId: selectedCatId,
+			await updateWeighIn(weighIn.id, {
 				method: useDelta ? 'delta' : 'direct',
 				weight: useDelta ? null : Number(directWeight),
 				personWeight: useDelta ? Number(personWeight) : null,
 				personCatWeight: useDelta ? Number(personCatWeight) : null,
-				userId: auth.session.user.id,
 				occurredAt: new Date(occurredAt).toISOString(),
 				notes
 			});
 			await refreshCats();
-			oncreated?.();
+			onsaved?.();
 			onclose();
-			showToast(`${catName}'s weigh-in saved: ${computedWeight.toFixed(2)} kg`);
+			showToast(`${catName}'s weigh-in updated`);
 		} catch (e) {
 			error = e.message;
 		} finally {
 			saving = false;
 		}
 	}
+
+	async function remove() {
+		if (!confirm('Remove this weigh-in?')) return;
+		removing = true;
+		error = '';
+		try {
+			await deleteWeighIn(weighIn.id);
+			await refreshCats();
+			onsaved?.();
+			onclose();
+			showToast('Weigh-in removed');
+		} catch (e) {
+			error = e.message;
+			removing = false;
+		}
+	}
 </script>
 
-<Modal title="Log a weigh-in" {onclose}>
+<Modal title="Edit weigh-in" {onclose}>
 	<form onsubmit={submit}>
-		<fieldset>
-			<legend>Cat</legend>
-			<div class="cat-options">
-				{#each cats as cat (cat.id)}
-					<label class="cat-option" class:selected={selectedCatId === cat.id}>
-						<input type="radio" name="cat" value={cat.id} bind:group={selectedCatId} />
-						<span class="dot" style:background={cat.color}></span>
-						{cat.name}
-					</label>
-				{/each}
-			</div>
-		</fieldset>
-
 		<label>
 			Date &amp; time
 			<input
@@ -131,7 +126,11 @@
 		{/if}
 
 		<button type="submit" disabled={!canSubmit || saving}>
-			{saving ? 'Saving…' : 'Save weigh-in'}
+			{saving ? 'Saving…' : 'Save changes'}
+		</button>
+
+		<button type="button" class="remove-btn" onclick={remove} disabled={removing || saving}>
+			{removing ? 'Removing…' : 'Remove weigh-in'}
 		</button>
 	</form>
 </Modal>
@@ -141,59 +140,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
-	}
-
-	fieldset {
-		border: none;
-		padding: 0;
-		margin: 0;
-	}
-
-	legend {
-		font-size: 0.85rem;
-		font-weight: 600;
-		color: var(--color-text-muted);
-		margin-bottom: 0.5rem;
-		padding: 0;
-	}
-
-	.cat-options {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-	}
-
-	.cat-option {
-		display: flex;
-		flex-direction: row;
-		align-items: center;
-		gap: 0.4rem;
-		border: 1px solid var(--color-border);
-		border-radius: 999px;
-		padding: 0.45rem 0.85rem;
-		cursor: pointer;
-		font-size: 0.9rem;
-	}
-
-	.cat-option:hover {
-		border-color: var(--color-primary);
-	}
-
-	.cat-option.selected {
-		border-color: var(--color-primary);
-		background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-	}
-
-	.cat-option input {
-		position: absolute;
-		opacity: 0;
-		pointer-events: none;
-	}
-
-	.dot {
-		width: 10px;
-		height: 10px;
-		border-radius: 50%;
 	}
 
 	label {
@@ -311,6 +257,21 @@
 	}
 
 	button[type='submit']:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+
+	.remove-btn {
+		padding: 0.7rem;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: none;
+		color: var(--color-danger);
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.remove-btn:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}

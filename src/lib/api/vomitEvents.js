@@ -58,3 +58,33 @@ export async function listVomitEventsForCat(catId, limit = 5) {
 	if (error) throw error;
 	return data;
 }
+
+export async function updateVomitEvent(
+	id,
+	{ occurredAt, content, amount, timing, appetite, energyLevel, diarrhea, blood, urineChanges, notes }
+) {
+	const { data, error } = await supabase
+		.from('vomit_events')
+		.update({
+			created_at: occurredAt,
+			content,
+			amount,
+			timing,
+			appetite,
+			energy_level: energyLevel,
+			diarrhea,
+			blood,
+			urine_changes: urineChanges,
+			notes: notes || null
+		})
+		.eq('id', id)
+		.select()
+		.single();
+	if (error) throw error;
+	return data;
+}
+
+export async function deleteVomitEvent(id) {
+	const { error } = await supabase.from('vomit_events').delete().eq('id', id);
+	if (error) throw error;
+}

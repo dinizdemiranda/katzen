@@ -29,7 +29,8 @@ export async function addWeighIn({
 	personWeight,
 	personCatWeight,
 	userId,
-	occurredAt
+	occurredAt,
+	notes
 }) {
 	const computedWeight = method === 'delta' ? personCatWeight - personWeight : weight;
 
@@ -41,6 +42,7 @@ export async function addWeighIn({
 			weight: computedWeight,
 			person_weight: method === 'delta' ? personWeight : null,
 			person_cat_weight: method === 'delta' ? personCatWeight : null,
+			notes: notes?.trim() || null,
 			created_by: userId,
 			created_at: occurredAt
 		})
@@ -48,4 +50,32 @@ export async function addWeighIn({
 		.single();
 	if (error) throw error;
 	return data;
+}
+
+export async function updateWeighIn(
+	id,
+	{ method, weight, personWeight, personCatWeight, occurredAt, notes }
+) {
+	const computedWeight = method === 'delta' ? personCatWeight - personWeight : weight;
+
+	const { data, error } = await supabase
+		.from('weigh_ins')
+		.update({
+			method,
+			weight: computedWeight,
+			person_weight: method === 'delta' ? personWeight : null,
+			person_cat_weight: method === 'delta' ? personCatWeight : null,
+			notes: notes?.trim() || null,
+			created_at: occurredAt
+		})
+		.eq('id', id)
+		.select()
+		.single();
+	if (error) throw error;
+	return data;
+}
+
+export async function deleteWeighIn(id) {
+	const { error } = await supabase.from('weigh_ins').delete().eq('id', id);
+	if (error) throw error;
 }

@@ -59,6 +59,7 @@ create table public.weigh_ins (
   method text not null default 'delta' check (method in ('delta', 'direct')),
   person_weight numeric,
   person_cat_weight numeric,
+  notes text,
   created_by uuid references public.profiles (id) on delete set null,
   created_at timestamptz not null default now()
 );
@@ -103,25 +104,28 @@ create trigger on_auth_user_created
   for each row execute procedure public.handle_new_user();
 
 -- Keep cats.weight in sync with the most recent weigh-in (by occurred-at time, not
--- insert order) so list views don't need a join. Weigh-ins can be backdated, so a
--- newly inserted row isn't necessarily the current weight.
+-- insert order) so list views don't need a join. Weigh-ins can be backdated, edited,
+-- or deleted, so this recomputes from scratch on any change rather than trusting
+-- whichever row triggered it.
 create function public.update_cat_weight()
 returns trigger as $$
+declare
+  target_cat_id uuid := coalesce(new.cat_id, old.cat_id);
 begin
   update public.cats
   set weight = (
     select weight from public.weigh_ins
-    where cat_id = new.cat_id
+    where cat_id = target_cat_id
     order by created_at desc
     limit 1
   )
-  where id = new.cat_id;
-  return new;
+  where id = target_cat_id;
+  return coalesce(new, old);
 end;
 $$ language plpgsql security definer set search_path = public;
 
-create trigger on_weigh_in_insert
-  after insert on public.weigh_ins
+create trigger on_weigh_in_change
+  after insert or update or delete on public.weigh_ins
   for each row execute procedure public.update_cat_weight();
 
 -- Every litter gets a standing "Unknown" cat, for logging events when it's genuinely
