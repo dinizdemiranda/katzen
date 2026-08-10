@@ -69,7 +69,7 @@
 					maintainAspectRatio: false,
 					plugins: { legend: { display: false } },
 					scales: {
-						y: { ticks: { callback: (v) => `${v} kg` } }
+						y: { min: 4, max: 9, ticks: { callback: (v) => `${v} kg` } }
 					}
 				}
 			});
@@ -121,6 +121,28 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.75rem;
+	}
+
+	@media (min-width: 860px) {
+		.graph-wrap {
+			flex-direction: row;
+			align-items: stretch;
+		}
+
+		.canvas-box {
+			flex: 1;
+			height: auto;
+			min-height: 220px;
+		}
+
+		.legend {
+			flex-direction: column;
+			flex-wrap: nowrap;
+			gap: 0.6rem;
+			width: 160px;
+			flex-shrink: 0;
+			padding-top: 0.25rem;
+		}
 	}
 
 	.legend li {

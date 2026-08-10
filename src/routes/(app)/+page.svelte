@@ -4,9 +4,16 @@
 	import { listVomitEvents } from '$lib/api/vomitEvents.js';
 	import { listVomitCats } from '$lib/api/cats.js';
 	import WeightGraph from '$lib/components/WeightGraph.svelte';
-	import VomitGraph from '$lib/components/VomitGraph.svelte';
+	import PukeCalendar from '$lib/components/PukeCalendar.svelte';
 	import WeighInModal from '$lib/components/WeighInModal.svelte';
 	import VomitModal from '$lib/components/VomitModal.svelte';
+	import EditVomitModal from '$lib/components/EditVomitModal.svelte';
+
+	const PERIOD_OPTIONS = [
+		{ days: 30, label: '30 days' },
+		{ days: 90, label: '90 days' },
+		{ days: 180, label: '6 months' }
+	];
 
 	let weighIns = $state([]);
 	let vomitEvents = $state([]);
@@ -14,6 +21,10 @@
 	let loaded = $state(false);
 	let showWeighInModal = $state(false);
 	let showVomitModal = $state(false);
+	let editingVomitEvent = $state(null);
+
+	let selectedCatId = $state('all');
+	let periodDays = $state(30);
 
 	async function loadData() {
 		if (!litterState.litter) return;
@@ -31,6 +42,46 @@
 	$effect(() => {
 		if (litterState.ready) loadData();
 	});
+
+	const filterCatOptions = $derived([
+		{ id: 'all', name: 'All cats' },
+		...litterState.cats,
+		...vomitCats.filter((c) => c.is_unknown)
+	]);
+
+	const filteredWeightCats = $derived(
+		selectedCatId === 'all' ? litterState.cats : litterState.cats.filter((c) => c.id === selectedCatId)
+	);
+
+	const filteredWeighIns = $derived.by(() => {
+		const cutoff = Date.now() - periodDays * 24 * 60 * 60 * 1000;
+		return weighIns.filter(
+			(w) =>
+				(selectedCatId === 'all' || w.cat_id === selectedCatId) &&
+				new Date(w.created_at).getTime() >= cutoff
+		);
+	});
+
+	const calendarCats = $derived(
+		selectedCatId === 'all' ? vomitCats : vomitCats.filter((c) => c.id === selectedCatId)
+	);
+
+	const calendarEvents = $derived.by(() => {
+		const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+		return vomitEvents.filter(
+			(v) =>
+				(selectedCatId === 'all' || v.cat_id === selectedCatId) &&
+				new Date(v.created_at).getTime() >= cutoff
+		);
+	});
+
+	function catNameFor(catId) {
+		return vomitCats.find((c) => c.id === catId)?.name ?? 'Cat';
+	}
+
+	function catBirthdayFor(catId) {
+		return vomitCats.find((c) => c.id === catId)?.birthday ?? null;
+	}
 </script>
 
 <div class="dashboard">
@@ -56,12 +107,33 @@
 			<div class="skeleton-line skeleton-graph"></div>
 		</div>
 	{:else}
+		<section class="card filter-bar">
+			<label class="filter">
+				<span>Cat</span>
+				<select bind:value={selectedCatId}>
+					{#each filterCatOptions as cat (cat.id)}
+						<option value={cat.id}>{cat.name}</option>
+					{/each}
+				</select>
+			</label>
+			<div class="filter">
+				<span>Weight period</span>
+				<div class="period-pills">
+					{#each PERIOD_OPTIONS as opt (opt.days)}
+						<button class:active={periodDays === opt.days} onclick={() => (periodDays = opt.days)}>
+							{opt.label}
+						</button>
+					{/each}
+				</div>
+			</div>
+		</section>
+
 		<section class="card">
 			<div class="card-header">
 				<h2>Weight Loss</h2>
 				<button class="action" onclick={() => (showWeighInModal = true)}>+ Log weight</button>
 			</div>
-			<WeightGraph cats={litterState.cats} {weighIns} />
+			<WeightGraph cats={filteredWeightCats} weighIns={filteredWeighIns} />
 		</section>
 
 		<section class="card">
@@ -69,7 +141,11 @@
 				<h2>Puke Tracking</h2>
 				<button class="action" onclick={() => (showVomitModal = true)}>+ Log puke</button>
 			</div>
-			<VomitGraph cats={vomitCats} events={vomitEvents} />
+			<PukeCalendar
+				cats={calendarCats}
+				events={calendarEvents}
+				onSelectEvent={(ev) => (editingVomitEvent = ev)}
+			/>
 		</section>
 	{/if}
 </div>
@@ -86,12 +162,22 @@
 	<VomitModal cats={vomitCats} onclose={() => (showVomitModal = false)} oncreated={loadData} />
 {/if}
 
+{#if editingVomitEvent}
+	<EditVomitModal
+		vomitEvent={editingVomitEvent}
+		catName={catNameFor(editingVomitEvent.cat_id)}
+		catBirthday={catBirthdayFor(editingVomitEvent.cat_id)}
+		onclose={() => (editingVomitEvent = null)}
+		onsaved={loadData}
+	/>
+{/if}
+
 <style>
 	.dashboard {
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
-		padding:  1.25rem 1rem;
+		padding: 1.25rem 1rem;
 	}
 
 	.page-header {
@@ -117,6 +203,55 @@
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-card);
 		padding: 1.1rem 1.1rem 1.25rem;
+	}
+
+	.filter-bar {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+		padding: 0.9rem 1.1rem;
+	}
+
+	.filter {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--color-text-muted);
+	}
+
+	.filter select {
+		padding: 0.5rem 0.7rem;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg);
+		color: var(--color-text);
+		font-size: 0.85rem;
+		font-weight: 400;
+	}
+
+	.period-pills {
+		display: flex;
+		gap: 0.35rem;
+	}
+
+	.period-pills button {
+		border: 1px solid var(--color-border);
+		background: var(--color-bg);
+		color: var(--color-text-muted);
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 0.4rem 0.65rem;
+		border-radius: 999px;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.period-pills button.active {
+		background: var(--color-primary);
+		border-color: var(--color-primary);
+		color: var(--color-primary-text);
 	}
 
 	.card-header {
