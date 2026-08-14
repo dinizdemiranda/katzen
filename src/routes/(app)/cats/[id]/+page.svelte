@@ -5,28 +5,28 @@
 	import CatAvatar from '$lib/components/CatAvatar.svelte';
 	import EditCatModal from '$lib/components/EditCatModal.svelte';
 	import EditWeighInModal from '$lib/components/EditWeighInModal.svelte';
-	import EditVomitModal from '$lib/components/EditVomitModal.svelte';
+	import EditIncidentModal from '$lib/components/EditIncidentModal.svelte';
 	import { formatBirthday, formatAge } from '$lib/utils/catDates.js';
 	import { listWeighInsForCat } from '$lib/api/weighIns.js';
-	import { listVomitEventsForCat } from '$lib/api/vomitEvents.js';
+	import { listIncidentsForCat } from '$lib/api/incidents.js';
 	import { weeklyAverageChange, weeklyChangeStatus } from '$lib/utils/weeklyChange.js';
-	import { contentLabel, amountLabel } from '$lib/vomitOptions.js';
+	import { incidentTypeInfo, contentLabel, amountLabel } from '$lib/incidentOptions.js';
 
 	const cat = $derived(litterState.cats.find((c) => c.id === $page.params.id));
 
 	let weighIns = $state([]);
-	let vomitEvents = $state([]);
+	let incidents = $state([]);
 	let loaded = $state(false);
 	let historyFilter = $state('all');
 	let showEditCat = $state(false);
 	let editingWeighIn = $state(null);
-	let editingVomitEvent = $state(null);
+	let editingIncident = $state(null);
 
 	async function loadHistory(catId) {
 		loaded = false;
-		const [w, v] = await Promise.all([listWeighInsForCat(catId), listVomitEventsForCat(catId, 5)]);
+		const [w, i] = await Promise.all([listWeighInsForCat(catId), listIncidentsForCat(catId, 5)]);
 		weighIns = w;
-		vomitEvents = v;
+		incidents = i;
 		loaded = true;
 	}
 
@@ -50,8 +50,22 @@
 		return { arrow: diff > 0 ? '↑' : '↓', cls: diff > 0 ? 'up' : 'down' };
 	}
 
+	function incidentSummary(incident) {
+		const { label } = incidentTypeInfo(incident, litterState.incidentTypes);
+		if (incident.type === 'puke') return `${contentLabel(incident.content)} · ${amountLabel(incident.amount)}`;
+		return label;
+	}
+
 	const weeklyChange = $derived(weeklyAverageChange(weighIns));
 	const weeklyStatus = $derived(weeklyChangeStatus(weeklyChange.percentLost));
+
+	const lastWeighInChange = $derived.by(() => {
+		if (weighIns.length < 2) return null;
+		const diff = Number(weighIns[0].weight) - Number(weighIns[1].weight);
+		const cls = diff === 0 ? 'flat' : diff > 0 ? 'up' : 'down';
+		const arrow = diff === 0 ? '→' : diff > 0 ? '↑' : '↓';
+		return { diff, cls, arrow };
+	});
 
 	const recentWeighIns = $derived(
 		weighIns.slice(0, 5).map((w, i) => ({ ...w, trend: trendFor(w.weight, weighIns[i + 1]?.weight) }))
@@ -59,12 +73,12 @@
 
 	const historyItems = $derived.by(() => {
 		const weightItems = recentWeighIns.map((w) => ({ type: 'weight', date: w.created_at, weighIn: w }));
-		const vomitItems = vomitEvents.map((v) => ({ type: 'vomit', date: v.created_at, vomitEvent: v }));
+		const incidentItems = incidents.map((v) => ({ type: 'incident', date: v.created_at, incident: v }));
 
 		let items;
 		if (historyFilter === 'weight') items = weightItems;
-		else if (historyFilter === 'vomit') items = vomitItems;
-		else items = [...weightItems, ...vomitItems].sort((a, b) => new Date(b.date) - new Date(a.date));
+		else if (historyFilter === 'incident') items = incidentItems;
+		else items = [...weightItems, ...incidentItems].sort((a, b) => new Date(b.date) - new Date(a.date));
 
 		return items.slice(0, 5);
 	});
@@ -112,12 +126,27 @@
 			{:else if weighIns.length === 0}
 				<p class="muted">No weigh-ins yet.</p>
 			{:else}
-				<div class="weekly-badge status-{weeklyStatus.color}">
-					<span class="weekly-arrow">{weeklyStatus.arrow}</span>
-					<div>
-						<p class="weekly-label">{weeklyStatus.label}</p>
-						<p class="weekly-sub">vs. previous 7 days</p>
+				<div class="metrics-row">
+					<div class="weekly-badge status-{weeklyStatus.color}">
+						<span class="weekly-arrow">{weeklyStatus.arrow}</span>
+						<div>
+							<p class="weekly-label">{weeklyStatus.label}</p>
+							<p class="weekly-sub">week over week avg</p>
+						</div>
 					</div>
+					{#if lastWeighInChange}
+						<div class="weekly-badge last-badge {lastWeighInChange.cls}">
+							<span class="weekly-arrow">{lastWeighInChange.arrow}</span>
+							<div>
+								<p class="weekly-label">
+									{lastWeighInChange.cls === 'flat'
+										? 'No change'
+										: `${Math.abs(lastWeighInChange.diff).toFixed(2)} kg`}
+								</p>
+								<p class="weekly-sub">vs. last weigh-in</p>
+							</div>
+						</div>
+					{/if}
 				</div>
 
 				<ul class="weigh-in-list">
@@ -151,8 +180,8 @@
 					<button class:active={historyFilter === 'weight'} onclick={() => (historyFilter = 'weight')}>
 						Weight
 					</button>
-					<button class:active={historyFilter === 'vomit'} onclick={() => (historyFilter = 'vomit')}>
-						Puke
+					<button class:active={historyFilter === 'incident'} onclick={() => (historyFilter = 'incident')}>
+						Events
 					</button>
 				</div>
 			</div>
@@ -163,17 +192,21 @@
 				<p class="muted">No events yet.</p>
 			{:else}
 				<ul class="history-list">
-					{#each historyItems as item (`${item.type}-${item.type === 'weight' ? item.weighIn.id : item.vomitEvent.id}`)}
+					{#each historyItems as item (`${item.type}-${item.type === 'weight' ? item.weighIn.id : item.incident.id}`)}
 						<li>
 							<button
 								class="row-button history-row"
 								onclick={() =>
 									item.type === 'weight'
 										? (editingWeighIn = item.weighIn)
-										: (editingVomitEvent = item.vomitEvent)}
+										: (editingIncident = item.incident)}
 							>
-								<span class="history-icon" class:vomit={item.type === 'vomit'}>
-									{item.type === 'weight' ? '⚖️' : '🤮'}
+								<span class="history-icon">
+									{#if item.type === 'weight'}
+										⚖️
+									{:else}
+										{incidentTypeInfo(item.incident, litterState.incidentTypes).emoji ?? '📋'}
+									{/if}
 								</span>
 								<div class="history-body">
 									{#if item.type === 'weight'}
@@ -186,8 +219,9 @@
 										</p>
 									{:else}
 										<p class="history-title">
-											{contentLabel(item.vomitEvent.content)} · {amountLabel(item.vomitEvent.amount)}
-											{#if item.vomitEvent.notes}<span class="note-flag" title={item.vomitEvent.notes}>📝</span>{/if}
+											{incidentSummary(item.incident)}
+											{#if item.incident.notes}<span class="note-flag" title={item.incident.notes}>📝</span>{/if}
+											{#if item.incident.photo_url}<span class="note-flag" title="Has a photo">📷</span>{/if}
 										</p>
 									{/if}
 									<p class="history-date">{formatDateTime(item.date)}</p>
@@ -215,12 +249,12 @@
 	/>
 {/if}
 
-{#if editingVomitEvent}
-	<EditVomitModal
-		vomitEvent={editingVomitEvent}
+{#if editingIncident}
+	<EditIncidentModal
+		incident={editingIncident}
 		catName={cat.name}
 		catBirthday={cat.birthday}
-		onclose={() => (editingVomitEvent = null)}
+		onclose={() => (editingIncident = null)}
 		onsaved={() => loadHistory(cat.id)}
 	/>
 {/if}
@@ -274,6 +308,17 @@
 
 	.muted {
 		color: var(--color-text-muted);
+	}
+
+	.metrics-row {
+		display: flex;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+	}
+
+	.metrics-row .weekly-badge {
+		flex: 1;
+		min-width: 140px;
 	}
 
 	.weekly-badge {
@@ -334,6 +379,30 @@
 	.status-red .weekly-arrow,
 	.status-red .weekly-label {
 		color: var(--color-danger);
+	}
+
+	.last-badge.up {
+		background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+	}
+	.last-badge.up .weekly-arrow,
+	.last-badge.up .weekly-label {
+		color: var(--color-danger);
+	}
+
+	.last-badge.down {
+		background: color-mix(in srgb, var(--color-positive) 14%, transparent);
+	}
+	.last-badge.down .weekly-arrow,
+	.last-badge.down .weekly-label {
+		color: var(--color-positive);
+	}
+
+	.last-badge.flat {
+		background: color-mix(in srgb, var(--color-text-muted) 12%, transparent);
+	}
+	.last-badge.flat .weekly-arrow,
+	.last-badge.flat .weekly-label {
+		color: var(--color-text-muted);
 	}
 
 	.weigh-in-list {

@@ -2,6 +2,7 @@ import { supabase } from '$lib/supabaseClient';
 import { getProfile } from '$lib/api/profiles';
 import { ensureLitterMembership, getLitter } from '$lib/api/litters';
 import { listCats } from '$lib/api/cats';
+import { listIncidentTypes } from '$lib/api/incidents';
 
 export const auth = $state({
 	session: null,
@@ -12,6 +13,7 @@ export const auth = $state({
 export const litterState = $state({
 	litter: null,
 	cats: [],
+	incidentTypes: [],
 	ready: false,
 	error: null
 });
@@ -43,6 +45,7 @@ async function handleSessionChange(session) {
 		auth.ready = true;
 		litterState.litter = null;
 		litterState.cats = [];
+		litterState.incidentTypes = [];
 		litterState.ready = true;
 		litterState.error = null;
 		return;
@@ -70,6 +73,7 @@ export async function loadLitter() {
 		const litterId = await ensureLitterMembership(auth.session.user.id, auth.session.user.email);
 		litterState.litter = await getLitter(litterId);
 		litterState.cats = await listCats(litterId);
+		litterState.incidentTypes = await listIncidentTypes(litterId);
 	} catch (e) {
 		console.error('Failed to load litter', e);
 		litterState.error = e.message ?? 'Something went wrong loading your household.';

@@ -14,8 +14,8 @@ export async function listCats(litterId) {
 }
 
 /** Real cats plus the "Unknown" cat, for contexts where "not sure which cat" is valid
- *  (vomit logging). "Unknown" is always sorted first, so it's the default selection. */
-export async function listVomitCats(litterId) {
+ *  (incident logging). "Unknown" is always sorted first, so it's the default selection. */
+export async function listEventCats(litterId) {
 	const { data, error } = await supabase
 		.from('cats')
 		.select('*')

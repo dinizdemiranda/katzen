@@ -1,12 +1,12 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Puke count for a cat over the selected period, plus a comparison against the
+ * Incident count for a cat over the selected period, plus a comparison against the
  * equal-length period before it — mirrors the weight weekly-change indicator so
- * both graphs "read" the same way: an arrow plus a color. More pukes than before
- * is flagged red (worse), fewer is green (better).
+ * both graphs "read" the same way: an arrow plus a color. More incidents than
+ * before is flagged red (worse), fewer is green (better).
  */
-export function pukeCountTrend(events, catId, periodDays, now = new Date()) {
+export function incidentCountTrend(events, catId, periodDays, now = new Date()) {
 	const nowMs = now.getTime();
 	const currentStart = nowMs - periodDays * DAY_MS;
 	const previousStart = nowMs - periodDays * 2 * DAY_MS;

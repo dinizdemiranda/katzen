@@ -64,25 +64,40 @@ create table public.weigh_ins (
   created_at timestamptz not null default now()
 );
 
-create table public.vomit_events (
+-- Custom incident types a household can add (e.g. "Hiding", "Limping"). The four
+-- built-in types (puke, litter_box, coughing, seizure) are fixed in the app itself,
+-- not stored here — this table is only for user-added ones.
+create table public.incident_types (
+  id uuid primary key default gen_random_uuid(),
+  litter_id uuid not null references public.litters (id) on delete cascade,
+  label text not null,
+  created_at timestamptz not null default now()
+);
+
+-- A general log of things that happen to a cat. Puke was the original (and still
+-- most detailed) incident type — content/amount/timing only apply when type = 'puke'.
+create table public.incidents (
   id uuid primary key default gen_random_uuid(),
   cat_id uuid not null references public.cats (id) on delete cascade,
-  content text not null check (content in ('food', 'foam_bile', 'fur', 'liquid', 'other')),
-  amount text not null check (amount in ('small', 'medium', 'large')),
-  timing text not null default 'unknown' check (timing in ('right_after_eating', 'fasting', 'unknown')),
+  type text not null default 'puke' check (type in ('puke', 'litter_box', 'coughing', 'seizure', 'custom')),
+  custom_type_id uuid references public.incident_types (id) on delete set null,
+  content text check (content in ('food', 'foam_bile', 'fur', 'liquid', 'mixed', 'other')),
+  amount text check (amount in ('small', 'medium', 'large')),
+  timing text check (timing in ('right_after_eating', 'fasting', 'unknown')),
   appetite text not null default 'normal' check (appetite in ('normal', 'reduced', 'not_eating')),
   energy_level text not null default 'normal' check (energy_level in ('normal', 'low', 'very_low')),
   diarrhea boolean not null default false,
   blood boolean not null default false,
   urine_changes boolean not null default false,
   notes text,
-  photo_url text, -- reserved for a future S3-backed photo upload
+  photo_url text, -- uploaded via the puke-photos storage bucket (used for all incident types)
   created_by uuid references public.profiles (id) on delete set null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint incidents_custom_type_consistency check ((type = 'custom') = (custom_type_id is not null))
 );
 
 create index weigh_ins_cat_created_idx on public.weigh_ins (cat_id, created_at);
-create index vomit_events_cat_created_idx on public.vomit_events (cat_id, created_at);
+create index incidents_cat_created_idx on public.incidents (cat_id, created_at);
 create index litter_invites_email_idx on public.litter_invites (email);
 
 -- ============================================================
@@ -170,7 +185,8 @@ alter table public.litter_members enable row level security;
 alter table public.litter_invites enable row level security;
 alter table public.cats enable row level security;
 alter table public.weigh_ins enable row level security;
-alter table public.vomit_events enable row level security;
+alter table public.incidents enable row level security;
+alter table public.incident_types enable row level security;
 
 -- profiles: see your own row, plus rows of people you share a litter with.
 create policy "profiles_select" on public.profiles for select
@@ -234,7 +250,7 @@ create policy "litter_invites_update" on public.litter_invites for update
 create policy "litter_invites_delete" on public.litter_invites for delete
   using (public.is_litter_member(litter_id));
 
--- cats / weigh_ins / vomit_events: anyone in the litter can manage its data.
+-- cats / weigh_ins / incidents / incident_types: anyone in the litter can manage its data.
 create policy "cats_all" on public.cats for all
   using (public.is_litter_member(litter_id))
   with check (public.is_litter_member(litter_id));
@@ -243,9 +259,13 @@ create policy "weigh_ins_all" on public.weigh_ins for all
   using (public.is_litter_member(public.litter_id_for_cat(cat_id)))
   with check (public.is_litter_member(public.litter_id_for_cat(cat_id)));
 
-create policy "vomit_events_all" on public.vomit_events for all
+create policy "incidents_all" on public.incidents for all
   using (public.is_litter_member(public.litter_id_for_cat(cat_id)))
   with check (public.is_litter_member(public.litter_id_for_cat(cat_id)));
+
+create policy "incident_types_all" on public.incident_types for all
+  using (public.is_litter_member(litter_id))
+  with check (public.is_litter_member(litter_id));
 
 -- ============================================================
 -- Storage (cat photos)
@@ -278,5 +298,40 @@ create policy "cat_photos_update" on storage.objects for update
 create policy "cat_photos_delete" on storage.objects for delete
   using (
     bucket_id = 'cat-photos'
+    and public.is_litter_member(((storage.foldername(name))[1])::uuid)
+  );
+
+-- ============================================================
+-- Storage (incident photos)
+-- ============================================================
+
+-- Bucket is still named "puke-photos" for historical reasons — it's used for
+-- every incident type now, not just puke, but renaming it isn't worth the
+-- migration risk since it's an internal identifier the UI never shows. Same
+-- shape as cat-photos: public bucket, reads bypass RLS via the public URL
+-- endpoint, writes are litter-scoped. Files are stored as
+-- "<litter_id>/<cat_id>/<filename>".
+insert into storage.buckets (id, name, public)
+values ('puke-photos', 'puke-photos', true)
+on conflict (id) do nothing;
+
+create policy "puke_photos_select" on storage.objects for select
+  using (bucket_id = 'puke-photos');
+
+create policy "puke_photos_insert" on storage.objects for insert
+  with check (
+    bucket_id = 'puke-photos'
+    and public.is_litter_member(((storage.foldername(name))[1])::uuid)
+  );
+
+create policy "puke_photos_update" on storage.objects for update
+  using (
+    bucket_id = 'puke-photos'
+    and public.is_litter_member(((storage.foldername(name))[1])::uuid)
+  );
+
+create policy "puke_photos_delete" on storage.objects for delete
+  using (
+    bucket_id = 'puke-photos'
     and public.is_litter_member(((storage.foldername(name))[1])::uuid)
   );

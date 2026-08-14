@@ -2,8 +2,9 @@
 	import Modal from '$lib/components/Modal.svelte';
 	import CatAvatar from '$lib/components/CatAvatar.svelte';
 	import { buildTrailingCalendar, buildMonthGrid, monthsInRange, dayKey } from '$lib/utils/calendarDays.js';
-	import { pukeCountTrend } from '$lib/utils/pukeTrend.js';
-	import { contentLabel, amountLabel } from '$lib/vomitOptions.js';
+	import { incidentCountTrend } from '$lib/utils/incidentTrend.js';
+	import { incidentTypeInfo, contentLabel, amountLabel } from '$lib/incidentOptions.js';
+	import { litterState } from '$lib/state/app.svelte.js';
 
 	let { cats, events, periodDays, onSelectEvent } = $props();
 
@@ -35,7 +36,7 @@
 		return map;
 	});
 
-	// Cats with an indicator: real cats always (so "0 pukes" is visible too), the
+	// Cats with an indicator: real cats always (so "0 events" is visible too), the
 	// Unknown cat only when it actually has history — otherwise it'd always show.
 	const legendCats = $derived(cats.filter((cat) => !cat.is_unknown || events.some((e) => e.cat_id === cat.id)));
 
@@ -43,6 +44,37 @@
 
 	function catFor(catId) {
 		return cats.find((c) => c.id === catId);
+	}
+
+	function typeInfo(incident) {
+		return incidentTypeInfo(incident, litterState.incidentTypes);
+	}
+
+	/** What to show as the descriptor: puke content for pukes, the type's label otherwise. */
+	function descriptor(incident) {
+		if (incident.type === 'puke') return contentLabel(incident.content);
+		return typeInfo(incident).label;
+	}
+
+	function tagLabel(ev) {
+		const { emoji } = typeInfo(ev);
+		const prefix = emoji ? `${emoji} ` : '';
+		return `${prefix}${catFor(ev.cat_id)?.name ?? 'Unknown'} - ${descriptor(ev)}`;
+	}
+
+	function tooltipHeadline(ev) {
+		if (ev.type === 'puke') return `${contentLabel(ev.content)} · ${amountLabel(ev.amount)}`;
+		return typeInfo(ev).label;
+	}
+
+	function summaryText(ev) {
+		const { emoji } = typeInfo(ev);
+		const prefix = emoji ? `${emoji} ` : '';
+		const name = catFor(ev.cat_id)?.name ?? 'Unknown';
+		if (ev.type === 'puke') {
+			return `${prefix}${name} - ${contentLabel(ev.content)} · ${amountLabel(ev.amount)}`;
+		}
+		return `${prefix}${name} - ${descriptor(ev)}`;
 	}
 
 	function dayLabel(date) {
@@ -56,10 +88,6 @@
 
 	function monthIndexOf(date) {
 		return date.getFullYear() * 12 + date.getMonth();
-	}
-
-	function tagLabel(ev) {
-		return `${catFor(ev.cat_id)?.name ?? 'Unknown'} - ${contentLabel(ev.content)}`;
 	}
 
 	function openDay(day, dayEvents) {
@@ -109,7 +137,7 @@
 									>
 										<span class="tag-label">{tagLabel(ev)}</span>
 										<span class="tag-tooltip">
-											<strong>{contentLabel(ev.content)} · {amountLabel(ev.amount)}</strong>
+											<strong>{tooltipHeadline(ev)}</strong>
 											<span>{timeLabel(ev.created_at)}</span>
 										</span>
 									</button>
@@ -164,22 +192,22 @@
 		<div class="legend-list">
 
 			{#each legendCats as cat (cat.id)}
-			{@const trend = pukeCountTrend(events, cat.id, periodDays)}
+			{@const trend = incidentCountTrend(events, cat.id, periodDays)}
 			<div class="cat-legend">
 
 				<div class="cat-header">
 					<CatAvatar {cat} size={22} borderColor={cat.color} />
 					<span class="name">{cat.name}</span>
 				</div>
-				
+
 				<span class="delta" class:up={trend.cls === 'up'} class:down={trend.cls === 'down'}>
 					{trend.arrow}
-					{trend.count} {trend.count === 1 ? 'puke' : 'pukes'}
+					{trend.count} {trend.count === 1 ? 'event' : 'events'}
 				</span>
 			</div>
 			{/each}
 		</div>
-		
+
 	{/if}
 </div>
 
@@ -190,9 +218,7 @@
 				<li>
 					<button class="summary-row" onclick={() => selectFromSummary(ev)}>
 						<span class="dot" style:background={catFor(ev.cat_id)?.color ?? 'var(--color-text-muted)'}></span>
-						<span class="summary-text">
-							{catFor(ev.cat_id)?.name ?? 'Unknown'} - {contentLabel(ev.content)} · {amountLabel(ev.amount)}
-						</span>
+						<span class="summary-text">{summaryText(ev)}</span>
 						<span class="summary-time">{timeLabel(ev.created_at)}</span>
 					</button>
 				</li>

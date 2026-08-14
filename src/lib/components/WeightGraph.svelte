@@ -4,7 +4,7 @@
 	import { sevenDayAverageSeries, seriesDelta } from '$lib/utils/rollingAverage.js';
 	import CatAvatar from '$lib/components/CatAvatar.svelte';
 
-	let { cats, weighIns } = $props();
+	let { cats, weighIns, allWeighIns = weighIns } = $props();
 
 	let canvasEl = $state();
 	let chart;
@@ -20,11 +20,25 @@
 		});
 	}
 
+	/** Change between the two most recent raw readings for a cat, independent of
+	 *  whatever period window the graph itself is showing. */
+	function lastVsPreviousFor(catId) {
+		const rows = allWeighIns
+			.filter((w) => w.cat_id === catId)
+			.slice()
+			.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+		if (rows.length < 2) return null;
+		const diff = Number(rows[0].weight) - Number(rows[1].weight);
+		const cls = diff === 0 ? 'flat' : diff > 0 ? 'up' : 'down';
+		const arrow = diff === 0 ? '→' : diff > 0 ? '↑' : '↓';
+		return { diff, cls, arrow };
+	}
+
 	const catSeries = $derived(
 		cats.map((cat) => {
 			const rows = weighIns.filter((w) => w.cat_id === cat.id);
 			const series = sevenDayAverageSeries(rows);
-			return { cat, series, delta: seriesDelta(series) };
+			return { cat, series, delta: seriesDelta(series), lastChange: lastVsPreviousFor(cat.id) };
 		})
 	);
 
@@ -87,7 +101,7 @@
 		</div>
 		<div class="legend-list">
 
-			{#each catSeries as { cat, delta } (cat.id)}
+			{#each catSeries as { cat, delta, lastChange } (cat.id)}
 			<div class="cat-legend">
 				<div class="cat-header">
 					<CatAvatar {cat} size={22} borderColor={cat.color} />
@@ -95,7 +109,14 @@
 				</div>
 				{#if delta !== null}
 				<span class="delta" class:up={delta > 0} class:down={delta < 0}>
-					{delta === 0 ? '—' : `${delta > 0 ? '↑' : '↓'} ${Math.abs(delta).toFixed(2)} kg`}
+					{delta === 0 ? '—' : `${delta > 0 ? '↑' : '↓'} ${Math.abs(delta).toFixed(2)} kg (weekly avg)`}
+				</span>
+				{/if}
+				{#if lastChange}
+				<span class="delta" class:up={lastChange.cls === 'up'} class:down={lastChange.cls === 'down'}>
+					{lastChange.cls === 'flat'
+						? '— no change'
+						: `${lastChange.arrow} ${Math.abs(lastChange.diff).toFixed(2)} kg (vs last weigh-in)`}
 				</span>
 				{/if}
 			</div>

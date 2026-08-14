@@ -1,13 +1,13 @@
 <script>
 	import { litterState } from '$lib/state/app.svelte.js';
 	import { listWeighIns } from '$lib/api/weighIns.js';
-	import { listVomitEvents } from '$lib/api/vomitEvents.js';
-	import { listVomitCats } from '$lib/api/cats.js';
+	import { listIncidents } from '$lib/api/incidents.js';
+	import { listEventCats } from '$lib/api/cats.js';
 	import WeightGraph from '$lib/components/WeightGraph.svelte';
-	import PukeCalendar from '$lib/components/PukeCalendar.svelte';
+	import EventCalendar from '$lib/components/EventCalendar.svelte';
 	import WeighInModal from '$lib/components/WeighInModal.svelte';
-	import VomitModal from '$lib/components/VomitModal.svelte';
-	import EditVomitModal from '$lib/components/EditVomitModal.svelte';
+	import IncidentModal from '$lib/components/IncidentModal.svelte';
+	import EditIncidentModal from '$lib/components/EditIncidentModal.svelte';
 
 	const PERIOD_OPTIONS = [
 		{ days: 30, label: '30 days' },
@@ -16,26 +16,26 @@
 	];
 
 	let weighIns = $state([]);
-	let vomitEvents = $state([]);
-	let vomitCats = $state([]);
+	let incidents = $state([]);
+	let eventCats = $state([]);
 	let loaded = $state(false);
 	let showWeighInModal = $state(false);
-	let showVomitModal = $state(false);
-	let editingVomitEvent = $state(null);
+	let showIncidentModal = $state(false);
+	let editingIncident = $state(null);
 
 	let selectedCatId = $state('all');
 	let periodDays = $state(30);
 
 	async function loadData() {
 		if (!litterState.litter) return;
-		const [w, v, vc] = await Promise.all([
+		const [w, i, ec] = await Promise.all([
 			listWeighIns(litterState.litter.id),
-			listVomitEvents(litterState.litter.id),
-			listVomitCats(litterState.litter.id)
+			listIncidents(litterState.litter.id),
+			listEventCats(litterState.litter.id)
 		]);
 		weighIns = w;
-		vomitEvents = v;
-		vomitCats = vc;
+		incidents = i;
+		eventCats = ec;
 		loaded = true;
 	}
 
@@ -46,7 +46,7 @@
 	const filterCatOptions = $derived([
 		{ id: 'all', name: 'All cats' },
 		...litterState.cats,
-		...vomitCats.filter((c) => c.is_unknown)
+		...eventCats.filter((c) => c.is_unknown)
 	]);
 
 	const filteredWeightCats = $derived(
@@ -62,22 +62,28 @@
 		);
 	});
 
-	const calendarCats = $derived(
-		selectedCatId === 'all' ? vomitCats : vomitCats.filter((c) => c.id === selectedCatId)
+	// Cat-filtered only, no period cutoff — "vs last weigh-in" should reflect the two
+	// most recent real readings regardless of the selected graph window.
+	const catFilteredWeighIns = $derived(
+		selectedCatId === 'all' ? weighIns : weighIns.filter((w) => w.cat_id === selectedCatId)
 	);
 
-	// Cat-filtered only — PukeCalendar windows this itself by periodDays, and needs
+	const calendarCats = $derived(
+		selectedCatId === 'all' ? eventCats : eventCats.filter((c) => c.id === selectedCatId)
+	);
+
+	// Cat-filtered only — EventCalendar windows this itself by periodDays, and needs
 	// history further back than the visible range to compute the previous-period trend.
-	const filteredVomitEvents = $derived(
-		selectedCatId === 'all' ? vomitEvents : vomitEvents.filter((v) => v.cat_id === selectedCatId)
+	const filteredIncidents = $derived(
+		selectedCatId === 'all' ? incidents : incidents.filter((v) => v.cat_id === selectedCatId)
 	);
 
 	function catNameFor(catId) {
-		return vomitCats.find((c) => c.id === catId)?.name ?? 'Cat';
+		return eventCats.find((c) => c.id === catId)?.name ?? 'Cat';
 	}
 
 	function catBirthdayFor(catId) {
-		return vomitCats.find((c) => c.id === catId)?.birthday ?? null;
+		return eventCats.find((c) => c.id === catId)?.birthday ?? null;
 	}
 </script>
 
@@ -130,19 +136,19 @@
 				<h2>Weight Loss</h2>
 				<button class="action" onclick={() => (showWeighInModal = true)}>+ Log weight</button>
 			</div>
-			<WeightGraph cats={filteredWeightCats} weighIns={filteredWeighIns} />
+			<WeightGraph cats={filteredWeightCats} weighIns={filteredWeighIns} allWeighIns={catFilteredWeighIns} />
 		</section>
 
 		<section class="card">
 			<div class="card-header">
-				<h2>Puke Tracking</h2>
-				<button class="action" onclick={() => (showVomitModal = true)}>+ Log puke</button>
+				<h2>Event Tracking</h2>
+				<button class="action" onclick={() => (showIncidentModal = true)}>+ Log incident</button>
 			</div>
-			<PukeCalendar
+			<EventCalendar
 				cats={calendarCats}
-				events={filteredVomitEvents}
+				events={filteredIncidents}
 				{periodDays}
-				onSelectEvent={(ev) => (editingVomitEvent = ev)}
+				onSelectEvent={(ev) => (editingIncident = ev)}
 			/>
 		</section>
 	{/if}
@@ -156,16 +162,16 @@
 	/>
 {/if}
 
-{#if showVomitModal}
-	<VomitModal cats={vomitCats} onclose={() => (showVomitModal = false)} oncreated={loadData} />
+{#if showIncidentModal}
+	<IncidentModal cats={eventCats} onclose={() => (showIncidentModal = false)} oncreated={loadData} />
 {/if}
 
-{#if editingVomitEvent}
-	<EditVomitModal
-		vomitEvent={editingVomitEvent}
-		catName={catNameFor(editingVomitEvent.cat_id)}
-		catBirthday={catBirthdayFor(editingVomitEvent.cat_id)}
-		onclose={() => (editingVomitEvent = null)}
+{#if editingIncident}
+	<EditIncidentModal
+		incident={editingIncident}
+		catName={catNameFor(editingIncident.cat_id)}
+		catBirthday={catBirthdayFor(editingIncident.cat_id)}
+		onclose={() => (editingIncident = null)}
 		onsaved={loadData}
 	/>
 {/if}
