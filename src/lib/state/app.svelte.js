@@ -54,15 +54,21 @@ async function handleSessionChange(session) {
 	if (inFlightUserId === session.user.id) return;
 	inFlightUserId = session.user.id;
 
-	try {
-		auth.profile = await getProfile(session.user.id);
-	} catch (e) {
-		console.error('Failed to load profile', e);
-	} finally {
-		auth.ready = true;
-	}
+	// Profile and litter are independent of each other (both only need the session), so
+	// load them concurrently instead of one after another — the loading gate waits for
+	// both anyway, so running them in parallel is pure latency savings.
+	const profileLoad = getProfile(session.user.id)
+		.then((profile) => {
+			auth.profile = profile;
+		})
+		.catch((e) => {
+			console.error('Failed to load profile', e);
+		})
+		.finally(() => {
+			auth.ready = true;
+		});
 
-	await loadLitter();
+	await Promise.all([profileLoad, loadLitter()]);
 }
 
 export async function loadLitter() {
@@ -71,9 +77,16 @@ export async function loadLitter() {
 	litterState.error = null;
 	try {
 		const litterId = await ensureLitterMembership(auth.session.user.id, auth.session.user.email);
-		litterState.litter = await getLitter(litterId);
-		litterState.cats = await listCats(litterId);
-		litterState.incidentTypes = await listIncidentTypes(litterId);
+		// getLitter/listCats/listIncidentTypes only depend on litterId, not on each other,
+		// so fetch them together instead of as a sequential chain.
+		const [litter, cats, incidentTypes] = await Promise.all([
+			getLitter(litterId),
+			listCats(litterId),
+			listIncidentTypes(litterId)
+		]);
+		litterState.litter = litter;
+		litterState.cats = cats;
+		litterState.incidentTypes = incidentTypes;
 	} catch (e) {
 		console.error('Failed to load litter', e);
 		litterState.error = e.message ?? 'Something went wrong loading your household.';

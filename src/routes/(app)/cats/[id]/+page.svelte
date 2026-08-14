@@ -6,27 +6,38 @@
 	import EditCatModal from '$lib/components/EditCatModal.svelte';
 	import EditWeighInModal from '$lib/components/EditWeighInModal.svelte';
 	import EditIncidentModal from '$lib/components/EditIncidentModal.svelte';
+	import EditAppointmentModal from '$lib/components/EditAppointmentModal.svelte';
 	import { formatBirthday, formatAge } from '$lib/utils/catDates.js';
 	import { listWeighInsForCat } from '$lib/api/weighIns.js';
 	import { listIncidentsForCat } from '$lib/api/incidents.js';
+	import { listAppointmentsForCat } from '$lib/api/appointments.js';
 	import { weeklyAverageChange, weeklyChangeStatus } from '$lib/utils/weeklyChange.js';
 	import { incidentTypeInfo, contentLabel, amountLabel } from '$lib/incidentOptions.js';
+	import { appointmentTypeLabel } from '$lib/appointmentOptions.js';
 
 	const cat = $derived(litterState.cats.find((c) => c.id === $page.params.id));
 
 	let weighIns = $state([]);
 	let incidents = $state([]);
+	let appointments = $state([]);
 	let loaded = $state(false);
 	let historyFilter = $state('all');
+	let appointmentTab = $state('upcoming');
 	let showEditCat = $state(false);
 	let editingWeighIn = $state(null);
 	let editingIncident = $state(null);
+	let editingAppointment = $state(null);
 
 	async function loadHistory(catId) {
 		loaded = false;
-		const [w, i] = await Promise.all([listWeighInsForCat(catId), listIncidentsForCat(catId, 5)]);
+		const [w, i, a] = await Promise.all([
+			listWeighInsForCat(catId),
+			listIncidentsForCat(catId, 5),
+			listAppointmentsForCat(catId)
+		]);
 		weighIns = w;
 		incidents = i;
+		appointments = a;
 		loaded = true;
 	}
 
@@ -82,6 +93,20 @@
 
 		return items.slice(0, 5);
 	});
+
+	const upcomingAppointments = $derived(
+		appointments
+			.filter((a) => new Date(a.scheduled_at) >= new Date())
+			.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+	);
+
+	const previousAppointments = $derived(
+		appointments.filter((a) => new Date(a.scheduled_at) < new Date()).slice(0, 5)
+	);
+
+	const visibleAppointments = $derived(
+		appointmentTab === 'upcoming' ? upcomingAppointments : previousAppointments
+	);
 </script>
 
 <AppHeader title={cat?.name ?? 'Cat'} backHref="/cats">
@@ -232,6 +257,51 @@
 				</ul>
 			{/if}
 		</section>
+
+		<section class="card">
+			<div class="card-header-row">
+				<h2>Appointments</h2>
+				<div class="filter-tabs">
+					<button class:active={appointmentTab === 'upcoming'} onclick={() => (appointmentTab = 'upcoming')}>
+						Upcoming
+					</button>
+					<button class:active={appointmentTab === 'previous'} onclick={() => (appointmentTab = 'previous')}>
+						Previous
+					</button>
+				</div>
+			</div>
+
+			{#if !loaded}
+				<p class="muted">Loading…</p>
+			{:else if visibleAppointments.length === 0}
+				<p class="muted">
+					{appointmentTab === 'upcoming' ? 'No upcoming appointments.' : 'No previous appointments.'}
+				</p>
+			{:else}
+				<ul class="history-list">
+					{#each visibleAppointments as appt (appt.id)}
+						<li>
+							<button class="row-button history-row" onclick={() => (editingAppointment = appt)}>
+								<span class="history-icon">📅</span>
+								<div class="history-body">
+									<p class="history-title">
+										{appt.title}
+										{#if appt.notes}<span class="note-flag" title={appt.notes}>📝</span>{/if}
+										{#if appt.appointment_documents?.length}
+											<span class="note-flag" title="{appt.appointment_documents.length} document(s)">📄</span>
+										{/if}
+									</p>
+									<p class="history-date">
+										{formatDateTime(appt.scheduled_at)} · {appointmentTypeLabel(appt.type)}
+										{#if appt.address}<span class="muted"> · {appt.address}</span>{/if}
+									</p>
+								</div>
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
 	{/if}
 </div>
 
@@ -255,6 +325,16 @@
 		catName={cat.name}
 		catBirthday={cat.birthday}
 		onclose={() => (editingIncident = null)}
+		onsaved={() => loadHistory(cat.id)}
+	/>
+{/if}
+
+{#if editingAppointment}
+	<EditAppointmentModal
+		appointment={editingAppointment}
+		catName={cat.name}
+		catBirthday={cat.birthday}
+		onclose={() => (editingAppointment = null)}
 		onsaved={() => loadHistory(cat.id)}
 	/>
 {/if}

@@ -8,40 +8,29 @@ export function dayKey(date) {
 }
 
 /**
- * The last `count` days (default 30) ending today, plus leading blank cells so the
- * first day lines up under its correct weekday in a 7-column calendar grid.
+ * A full-weeks grid for the given month: the month's own days plus enough leading days
+ * from the previous month and trailing days from the next to fill out whole weeks (so a
+ * month starting on a Saturday doesn't leave a mostly-empty first row), each flagged with
+ * whether it belongs to the requested month.
  */
-export function buildTrailingCalendar(count = 30, today = new Date()) {
-	const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-	start.setDate(start.getDate() - (count - 1));
-
-	const days = Array.from({ length: count }, (_, i) => {
-		const d = new Date(start);
-		d.setDate(d.getDate() + i);
-		return d;
-	});
-
-	return { days, leadingPad: days[0].getDay() };
-}
-
-/** All days in a given month, plus leading blanks to align the 1st under its weekday. */
 export function buildMonthGrid(year, month) {
 	const firstDay = new Date(year, month, 1);
 	const daysInMonth = new Date(year, month + 1, 0).getDate();
-	const days = Array.from({ length: daysInMonth }, (_, i) => new Date(year, month, i + 1));
-	return { days, leadingPad: firstDay.getDay() };
-}
+	const leadingCount = firstDay.getDay();
 
-/** The distinct {year, month} pairs touched by a list of dates, oldest first. */
-export function monthsInRange(days) {
-	const seen = new Set();
-	const months = [];
-	for (const d of days) {
-		const key = `${d.getFullYear()}-${d.getMonth()}`;
-		if (!seen.has(key)) {
-			seen.add(key);
-			months.push({ year: d.getFullYear(), month: d.getMonth() });
-		}
-	}
-	return months;
+	const leading = Array.from({ length: leadingCount }, (_, i) => ({
+		date: new Date(year, month, i - leadingCount + 1),
+		inCurrentMonth: false
+	}));
+	const current = Array.from({ length: daysInMonth }, (_, i) => ({
+		date: new Date(year, month, i + 1),
+		inCurrentMonth: true
+	}));
+	const trailingCount = (7 - ((leading.length + current.length) % 7)) % 7;
+	const trailing = Array.from({ length: trailingCount }, (_, i) => ({
+		date: new Date(year, month, daysInMonth + i + 1),
+		inCurrentMonth: false
+	}));
+
+	return { days: [...leading, ...current, ...trailing] };
 }

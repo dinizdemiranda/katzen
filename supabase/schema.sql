@@ -96,8 +96,34 @@ create table public.incidents (
   constraint incidents_custom_type_consistency check ((type = 'custom') = (custom_type_id is not null))
 );
 
+-- Scheduled events — vet visits, exams, procedures — as opposed to incidents, which
+-- are logged after the fact. scheduled_at can be in the future or the past.
+create table public.appointments (
+  id uuid primary key default gen_random_uuid(),
+  cat_id uuid not null references public.cats (id) on delete cascade,
+  title text not null,
+  type text not null default 'vet_visit' check (type in ('vet_visit', 'clinical_exam', 'procedure', 'emergency')),
+  scheduled_at timestamptz not null,
+  address text,
+  notes text,
+  created_by uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+-- An appointment can have several attached documents (referral letters, invoices,
+-- scan results), so this is its own table rather than a single photo_url column.
+create table public.appointment_documents (
+  id uuid primary key default gen_random_uuid(),
+  appointment_id uuid not null references public.appointments (id) on delete cascade,
+  file_url text not null,
+  file_name text not null,
+  created_at timestamptz not null default now()
+);
+
 create index weigh_ins_cat_created_idx on public.weigh_ins (cat_id, created_at);
 create index incidents_cat_created_idx on public.incidents (cat_id, created_at);
+create index appointments_cat_scheduled_idx on public.appointments (cat_id, scheduled_at);
+create index appointment_documents_appointment_idx on public.appointment_documents (appointment_id);
 create index litter_invites_email_idx on public.litter_invites (email);
 
 -- ============================================================
@@ -175,6 +201,11 @@ returns uuid as $$
   select litter_id from public.cats where id = target_cat_id;
 $$ language sql security definer stable set search_path = public;
 
+create function public.litter_id_for_appointment(target_appointment_id uuid)
+returns uuid as $$
+  select public.litter_id_for_cat(cat_id) from public.appointments where id = target_appointment_id;
+$$ language sql security definer stable set search_path = public;
+
 -- ============================================================
 -- Row Level Security
 -- ============================================================
@@ -187,6 +218,8 @@ alter table public.cats enable row level security;
 alter table public.weigh_ins enable row level security;
 alter table public.incidents enable row level security;
 alter table public.incident_types enable row level security;
+alter table public.appointments enable row level security;
+alter table public.appointment_documents enable row level security;
 
 -- profiles: see your own row, plus rows of people you share a litter with.
 create policy "profiles_select" on public.profiles for select
@@ -267,6 +300,14 @@ create policy "incident_types_all" on public.incident_types for all
   using (public.is_litter_member(litter_id))
   with check (public.is_litter_member(litter_id));
 
+create policy "appointments_all" on public.appointments for all
+  using (public.is_litter_member(public.litter_id_for_cat(cat_id)))
+  with check (public.is_litter_member(public.litter_id_for_cat(cat_id)));
+
+create policy "appointment_documents_all" on public.appointment_documents for all
+  using (public.is_litter_member(public.litter_id_for_appointment(appointment_id)))
+  with check (public.is_litter_member(public.litter_id_for_appointment(appointment_id)));
+
 -- ============================================================
 -- Storage (cat photos)
 -- ============================================================
@@ -333,5 +374,36 @@ create policy "puke_photos_update" on storage.objects for update
 create policy "puke_photos_delete" on storage.objects for delete
   using (
     bucket_id = 'puke-photos'
+    and public.is_litter_member(((storage.foldername(name))[1])::uuid)
+  );
+
+-- ============================================================
+-- Storage (appointment documents)
+-- ============================================================
+
+-- Same shape again: public bucket, litter-scoped writes. Files are stored as
+-- "<litter_id>/<cat_id>/<filename>".
+insert into storage.buckets (id, name, public)
+values ('appointment-documents', 'appointment-documents', true)
+on conflict (id) do nothing;
+
+create policy "appointment_documents_select" on storage.objects for select
+  using (bucket_id = 'appointment-documents');
+
+create policy "appointment_documents_insert" on storage.objects for insert
+  with check (
+    bucket_id = 'appointment-documents'
+    and public.is_litter_member(((storage.foldername(name))[1])::uuid)
+  );
+
+create policy "appointment_documents_update" on storage.objects for update
+  using (
+    bucket_id = 'appointment-documents'
+    and public.is_litter_member(((storage.foldername(name))[1])::uuid)
+  );
+
+create policy "appointment_documents_delete" on storage.objects for delete
+  using (
+    bucket_id = 'appointment-documents'
     and public.is_litter_member(((storage.foldername(name))[1])::uuid)
   );

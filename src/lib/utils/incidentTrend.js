@@ -1,22 +1,22 @@
-const DAY_MS = 24 * 60 * 60 * 1000;
+function countInMonth(events, year, month) {
+	return events.filter((e) => {
+		const d = new Date(e.created_at);
+		return d.getFullYear() === year && d.getMonth() === month;
+	}).length;
+}
 
 /**
- * Incident count for a cat over the selected period, plus a comparison against the
- * equal-length period before it — mirrors the weight weekly-change indicator so
- * both graphs "read" the same way: an arrow plus a color. More incidents than
- * before is flagged red (worse), fewer is green (better).
+ * Incident count for a cat in the given calendar month, plus a comparison against the
+ * previous month — mirrors the weight weekly-change indicator so both "read" the same
+ * way: an arrow plus a color. More incidents than before is flagged red (worse), fewer
+ * is green (better).
  */
-export function incidentCountTrend(events, catId, periodDays, now = new Date()) {
-	const nowMs = now.getTime();
-	const currentStart = nowMs - periodDays * DAY_MS;
-	const previousStart = nowMs - periodDays * 2 * DAY_MS;
-
+export function monthIncidentTrend(events, catId, year, month) {
 	const catEvents = events.filter((e) => e.cat_id === catId);
-	const count = catEvents.filter((e) => new Date(e.created_at).getTime() >= currentStart).length;
-	const previousCount = catEvents.filter((e) => {
-		const t = new Date(e.created_at).getTime();
-		return t >= previousStart && t < currentStart;
-	}).length;
+	const count = countInMonth(catEvents, year, month);
+	const prevYear = month === 0 ? year - 1 : year;
+	const prevMonth = month === 0 ? 11 : month - 1;
+	const previousCount = countInMonth(catEvents, prevYear, prevMonth);
 
 	const diff = count - previousCount;
 	let cls = 'flat';

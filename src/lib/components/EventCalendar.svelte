@@ -1,35 +1,30 @@
 <script>
 	import Modal from '$lib/components/Modal.svelte';
 	import CatAvatar from '$lib/components/CatAvatar.svelte';
-	import { buildTrailingCalendar, buildMonthGrid, monthsInRange, dayKey } from '$lib/utils/calendarDays.js';
-	import { incidentCountTrend } from '$lib/utils/incidentTrend.js';
+	import { buildMonthGrid, dayKey } from '$lib/utils/calendarDays.js';
+	import { monthIncidentTrend } from '$lib/utils/incidentTrend.js';
 	import { incidentTypeInfo, contentLabel, amountLabel } from '$lib/incidentOptions.js';
+	import { appointmentTypeLabel } from '$lib/appointmentOptions.js';
 	import { litterState } from '$lib/state/app.svelte.js';
 
-	let { cats, events, periodDays, onSelectEvent } = $props();
+	let { cats, events, appointments = [], viewYear, viewMonth, onSelectEvent, onSelectDay } = $props();
 
 	const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-	const MONTH_WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+	const MAX_VISIBLE_TAGS = 3;
 
 	const todayKey = dayKey(new Date());
-	const isDetailView = $derived(periodDays <= 30);
 
-	const calendar = $derived(buildTrailingCalendar(periodDays));
+	const calendar = $derived(buildMonthGrid(viewYear, viewMonth));
 
-	const monthBlocks = $derived.by(() => {
-		if (isDetailView) return [];
-		return monthsInRange(calendar.days).map(({ year, month }) => ({
-			year,
-			month,
-			label: new Date(year, month, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
-			...buildMonthGrid(year, month)
-		}));
-	});
+	const allItems = $derived([
+		...events.map((e) => ({ ...e, kind: 'incident', date: e.created_at })),
+		...appointments.map((a) => ({ ...a, kind: 'appointment', date: a.scheduled_at }))
+	]);
 
 	const eventsByDay = $derived.by(() => {
 		const map = new Map();
-		for (const ev of events) {
-			const key = dayKey(ev.created_at);
+		for (const ev of allItems) {
+			const key = dayKey(ev.date);
 			if (!map.has(key)) map.set(key, []);
 			map.get(key).push(ev);
 		}
@@ -46,14 +41,16 @@
 		return cats.find((c) => c.id === catId);
 	}
 
-	function typeInfo(incident) {
-		return incidentTypeInfo(incident, litterState.incidentTypes);
+	function typeInfo(ev) {
+		if (ev.kind === 'appointment') return { label: appointmentTypeLabel(ev.type), emoji: '📅' };
+		return incidentTypeInfo(ev, litterState.incidentTypes);
 	}
 
-	/** What to show as the descriptor: puke content for pukes, the type's label otherwise. */
-	function descriptor(incident) {
-		if (incident.type === 'puke') return contentLabel(incident.content);
-		return typeInfo(incident).label;
+	/** What to show as the descriptor: appointment title, puke content, or the type's label. */
+	function descriptor(ev) {
+		if (ev.kind === 'appointment') return ev.title;
+		if (ev.type === 'puke') return contentLabel(ev.content);
+		return typeInfo(ev).label;
 	}
 
 	function tagLabel(ev) {
@@ -63,151 +60,125 @@
 	}
 
 	function tooltipHeadline(ev) {
-		if (ev.type === 'puke') return `${contentLabel(ev.content)} · ${amountLabel(ev.amount)}`;
-		return typeInfo(ev).label;
+		return descriptor(ev);
+	}
+
+	function tooltipSubtext(ev) {
+		const time = timeLabel(ev.date);
+		if (ev.kind === 'appointment') {
+			const meta = ev.address ? `${appointmentTypeLabel(ev.type)} · ${ev.address}` : appointmentTypeLabel(ev.type);
+			return `${meta} · ${time}`;
+		}
+		if (ev.type === 'puke') return `${amountLabel(ev.amount)} · ${time}`;
+		return time;
 	}
 
 	function summaryText(ev) {
 		const { emoji } = typeInfo(ev);
 		const prefix = emoji ? `${emoji} ` : '';
 		const name = catFor(ev.cat_id)?.name ?? 'Unknown';
-		if (ev.type === 'puke') {
+		if (ev.kind === 'incident' && ev.type === 'puke') {
 			return `${prefix}${name} - ${contentLabel(ev.content)} · ${amountLabel(ev.amount)}`;
 		}
 		return `${prefix}${name} - ${descriptor(ev)}`;
-	}
-
-	function dayLabel(date) {
-		const month = date.toLocaleDateString(undefined, { month: 'short' });
-		return `${month} ${String(date.getDate()).padStart(2, '0')}`;
 	}
 
 	function timeLabel(iso) {
 		return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 	}
 
-	function monthIndexOf(date) {
-		return date.getFullYear() * 12 + date.getMonth();
-	}
-
-	function openDay(day, dayEvents) {
-		if (dayEvents.length === 0) return;
-		if (dayEvents.length === 1) {
-			onSelectEvent(dayEvents[0]);
-			return;
-		}
-		daySummary = { label: day.toLocaleDateString(undefined, { month: 'long', day: 'numeric' }), events: dayEvents };
+	function openDaySummary(date, dayEvents) {
+		daySummary = { label: date.toLocaleDateString(undefined, { month: 'long', day: 'numeric' }), events: dayEvents };
 	}
 
 	function selectFromSummary(ev) {
 		daySummary = null;
 		onSelectEvent(ev);
 	}
+
+	function selectTag(event, ev) {
+		event.stopPropagation();
+		onSelectEvent(ev);
+	}
+
+	function showMore(event, date, dayEvents) {
+		event.stopPropagation();
+		openDaySummary(date, dayEvents);
+	}
 </script>
 
 <div class="calendar-wrap">
 	<div class="calendar-main">
-		{#if isDetailView}
-			<div class="weekday-row">
-				{#each WEEKDAY_LABELS as label (label)}
-					<span>{label}</span>
-				{/each}
-			</div>
+		<div class="weekday-row">
+			{#each WEEKDAY_LABELS as label (label)}
+				<span>{label}</span>
+			{/each}
+		</div>
 
-			<div class="day-grid">
-				{#each { length: calendar.leadingPad } as _, i (i)}
-					<div class="cell empty"></div>
-				{/each}
-				{#each calendar.days as day (day.getTime())}
-					{@const key = dayKey(day)}
-					{@const dayEvents = eventsByDay.get(key) ?? []}
-					<div
-						class="cell"
-						class:today={key === todayKey}
-						class:month-alt={monthIndexOf(day) % 2 === 1}
-					>
-						<span class="day-label">{dayLabel(day)}</span>
-						{#if dayEvents.length > 0}
-							<div class="tags">
-								{#each dayEvents as ev (ev.id)}
-									<button
-										class="tag"
-										style:--tag-color={catFor(ev.cat_id)?.color ?? 'var(--color-text-muted)'}
-										onclick={() => onSelectEvent(ev)}
-									>
-										<span class="tag-label">{tagLabel(ev)}</span>
-										<span class="tag-tooltip">
-											<strong>{tooltipHeadline(ev)}</strong>
-											<span>{timeLabel(ev.created_at)}</span>
-										</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/each}
-			</div>
-		{:else}
-			<div class="month-grid">
-				{#each monthBlocks as block (`${block.year}-${block.month}`)}
-					<div class="mini-month">
-						<p class="mini-month-title">{block.label}</p>
-						<div class="mini-weekday-row">
-							{#each MONTH_WEEKDAY_LABELS as label, i (i)}
-								<span>{label}</span>
-							{/each}
-						</div>
-						<div class="mini-day-grid">
-							{#each { length: block.leadingPad } as _, i (i)}
-								<span class="mini-cell empty"></span>
-							{/each}
-							{#each block.days as day (day.getTime())}
-								{@const key = dayKey(day)}
-								{@const dayEvents = eventsByDay.get(key) ?? []}
+		<div class="day-grid">
+			{#each calendar.days as day (day.date.getTime())}
+				{@const key = dayKey(day.date)}
+				{@const dayEvents = eventsByDay.get(key) ?? []}
+				<div
+					class="cell"
+					class:today={key === todayKey}
+					class:other-month={!day.inCurrentMonth}
+					role="button"
+					tabindex="0"
+					aria-label={`Add event on ${day.date.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}`}
+					onclick={(e) => onSelectDay?.(day.date, e.currentTarget)}
+					onkeydown={(e) => {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							onSelectDay?.(day.date, e.currentTarget);
+						}
+					}}
+				>
+					<span class="day-label">{day.date.getDate()}</span>
+					{#if dayEvents.length > 0}
+						<div class="tags">
+							{#each dayEvents.slice(0, MAX_VISIBLE_TAGS) as ev (ev.id)}
 								<button
-									class="mini-cell"
-									class:today={key === todayKey}
-									class:has-events={dayEvents.length > 0}
-									disabled={dayEvents.length === 0}
-									onclick={() => openDay(day, dayEvents)}
+									class="tag"
+									style:--tag-color={catFor(ev.cat_id)?.color ?? 'var(--color-text-muted)'}
+									onclick={(e) => selectTag(e, ev)}
 								>
-									{day.getDate()}
-									{#if dayEvents.length > 0}
-										<span class="mini-dots">
-											{#each dayEvents.slice(0, 4) as ev (ev.id)}
-												<span class="mini-dot" style:background={catFor(ev.cat_id)?.color ?? 'var(--color-text-muted)'}></span>
-											{/each}
-										</span>
-									{/if}
+									<span class="tag-label">{tagLabel(ev)}</span>
+									<span class="tag-tooltip">
+										<strong>{tooltipHeadline(ev)}</strong>
+										<span>{tooltipSubtext(ev)}</span>
+									</span>
 								</button>
 							{/each}
+							{#if dayEvents.length > MAX_VISIBLE_TAGS}
+								<button class="tag more-tag" onclick={(e) => showMore(e, day.date, dayEvents)}>
+									+{dayEvents.length - MAX_VISIBLE_TAGS} more
+								</button>
+							{/if}
 						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
+					{/if}
+				</div>
+			{/each}
+		</div>
 	</div>
 
 	{#if legendCats.length > 0}
 		<div class="legend-list">
-
 			{#each legendCats as cat (cat.id)}
-			{@const trend = incidentCountTrend(events, cat.id, periodDays)}
-			<div class="cat-legend">
+				{@const trend = monthIncidentTrend(events, cat.id, viewYear, viewMonth)}
+				<div class="cat-legend">
+					<div class="cat-header">
+						<CatAvatar {cat} size={22} borderColor={cat.color} />
+						<span class="name">{cat.name}</span>
+					</div>
 
-				<div class="cat-header">
-					<CatAvatar {cat} size={22} borderColor={cat.color} />
-					<span class="name">{cat.name}</span>
+					<span class="delta" class:up={trend.cls === 'up'} class:down={trend.cls === 'down'}>
+						{trend.arrow}
+						{trend.count} {trend.count === 1 ? 'event' : 'events'}
+					</span>
 				</div>
-
-				<span class="delta" class:up={trend.cls === 'up'} class:down={trend.cls === 'down'}>
-					{trend.arrow}
-					{trend.count} {trend.count === 1 ? 'event' : 'events'}
-				</span>
-			</div>
 			{/each}
 		</div>
-
 	{/if}
 </div>
 
@@ -219,7 +190,7 @@
 					<button class="summary-row" onclick={() => selectFromSummary(ev)}>
 						<span class="dot" style:background={catFor(ev.cat_id)?.color ?? 'var(--color-text-muted)'}></span>
 						<span class="summary-text">{summaryText(ev)}</span>
-						<span class="summary-time">{timeLabel(ev.created_at)}</span>
+						<span class="summary-time">{timeLabel(ev.date)}</span>
 					</button>
 				</li>
 			{/each}
@@ -268,20 +239,29 @@
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
-		min-height: 64px;
+		min-height: 68px;
+		cursor: pointer;
 	}
 
-	.cell.empty {
-		background: none;
-	}
-
-	.cell.month-alt {
-		background: color-mix(in srgb, var(--color-bg) 55%, var(--color-surface));
+	.cell:hover {
+		background: color-mix(in srgb, var(--color-bg) 70%, var(--color-surface));
 	}
 
 	.cell.today {
 		outline: 1.5px solid gray;
 		outline-offset: -1.5px;
+	}
+
+	.cell.other-month {
+		background: color-mix(in srgb, var(--color-bg) 45%, transparent);
+	}
+
+	.cell.other-month:hover {
+		background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+	}
+
+	.cell.other-month .day-label {
+		opacity: 0.3;
 	}
 
 	.day-label {
@@ -290,7 +270,6 @@
 		color: var(--color-text-muted);
 		opacity: 0.6;
 		padding: 0 4px;
-
 		text-align: center;
 	}
 
@@ -323,6 +302,12 @@
 		white-space: nowrap;
 	}
 
+	.more-tag {
+		background: none;
+		color: var(--color-text-muted);
+		font-weight: 700;
+	}
+
 	.tag-tooltip {
 		display: none;
 		flex-direction: column;
@@ -353,98 +338,6 @@
 	.tag:hover .tag-tooltip,
 	.tag:focus-visible .tag-tooltip {
 		display: flex;
-	}
-
-	.month-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-		gap: 0.75rem;
-	}
-
-	.mini-month {
-		background: var(--color-bg);
-		border-radius: var(--radius-sm);
-		padding: 0.55rem;
-	}
-
-	.mini-month-title {
-		font-size: 0.72rem;
-		font-weight: 700;
-		color: var(--color-text);
-		margin-bottom: 0.35rem;
-	}
-
-	.mini-weekday-row {
-		display: grid;
-		grid-template-columns: repeat(7, minmax(0, 1fr));
-		margin-bottom: 2px;
-	}
-
-	.mini-weekday-row span {
-		text-align: center;
-		font-size: 0.55rem;
-		color: var(--color-text-muted);
-	}
-
-	.mini-day-grid {
-		display: grid;
-		grid-template-columns: repeat(7, minmax(0, 1fr));
-		gap: 1px;
-	}
-
-	.mini-cell {
-		aspect-ratio: 1;
-		border: none;
-		background: none;
-		border-radius: 4px;
-		font-size: 0.6rem;
-		color: var(--color-text-muted);
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 1px;
-		padding: 0;
-		cursor: default;
-	}
-
-	.mini-cell.has-events {
-		cursor: pointer;
-		color: var(--color-text);
-		font-weight: 700;
-	}
-
-	.mini-cell.today {
-		outline: 1.5px solid var(--color-primary);
-		outline-offset: -1.5px;
-	}
-
-	.mini-dots {
-		display: flex;
-		gap: 1px;
-	}
-
-	.mini-dot {
-		width: 4px;
-		height: 4px;
-		border-radius: 50%;
-	}
-
-	.legend {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.75rem;
-	}
-
-	.legend li {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		font-size: 0.8rem;
-		color: var(--color-text-muted);
 	}
 
 	.dot {
@@ -527,20 +420,10 @@
 			flex-direction: row;
 			align-items: stretch;
 		}
-		.day-label {
-
-		text-align: start;
-		}
 
 		.legend-list {
 			flex-direction: column;
 			gap: 16px;
-		}
-
-		.legend {
-			flex-direction: column;
-			flex-wrap: nowrap;
-			gap: 0.6rem;
 			min-width: 160px;
 			flex-shrink: 0;
 			padding-top: 0.25rem;

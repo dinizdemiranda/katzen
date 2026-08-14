@@ -3,7 +3,7 @@
 	import { updateIncident, deleteIncident, uploadIncidentPhoto, createIncidentType } from '$lib/api/incidents.js';
 	import { litterState } from '$lib/state/app.svelte.js';
 	import { showToast } from '$lib/state/toast.svelte.js';
-	import { toDatetimeLocalValue } from '$lib/utils/datetimeLocal.js';
+	import { toDatetimeLocalValue, roundToQuarterHour, ceilToQuarterHour } from '$lib/utils/datetimeLocal.js';
 	import {
 		BUILTIN_INCIDENT_TYPES,
 		BUILTIN_INCIDENT_KEYS,
@@ -18,7 +18,8 @@
 
 	let { incident, catName, catBirthday, onclose, onsaved } = $props();
 
-	const maxDateTime = toDatetimeLocalValue(new Date());
+	const nowCeil = ceilToQuarterHour(new Date());
+	const maxDateTime = toDatetimeLocalValue(nowCeil);
 	const minDateTime = catBirthday ? `${catBirthday}T00:00` : undefined;
 
 	let selectedTypeKey = $state(incident.type === 'custom' ? incident.custom_type_id : incident.type);
@@ -26,7 +27,8 @@
 	let newTypeLabel = $state('');
 	let savingNewType = $state(false);
 
-	let occurredAt = $state(toDatetimeLocalValue(new Date(incident.created_at)));
+	const initialOccurred = roundToQuarterHour(new Date(incident.created_at));
+	let occurredAt = $state(toDatetimeLocalValue(initialOccurred > nowCeil ? nowCeil : initialOccurred));
 	let content = $state(incident.content ?? '');
 	let amount = $state(incident.amount ?? '');
 	let timing = $state(incident.timing ?? 'unknown');
@@ -221,6 +223,7 @@
 				bind:value={occurredAt}
 				min={minDateTime}
 				max={maxDateTime}
+				step="900"
 				required
 			/>
 		</label>

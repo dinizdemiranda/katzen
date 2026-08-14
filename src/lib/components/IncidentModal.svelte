@@ -3,7 +3,7 @@
 	import { addIncident, uploadIncidentPhoto, createIncidentType } from '$lib/api/incidents.js';
 	import { auth, litterState } from '$lib/state/app.svelte.js';
 	import { showToast } from '$lib/state/toast.svelte.js';
-	import { toDatetimeLocalValue } from '$lib/utils/datetimeLocal.js';
+	import { toDatetimeLocalValue, roundToQuarterHour, ceilToQuarterHour } from '$lib/utils/datetimeLocal.js';
 	import {
 		BUILTIN_INCIDENT_TYPES,
 		BUILTIN_INCIDENT_KEYS,
@@ -16,9 +16,11 @@
 
 	const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
-	let { cats, onclose, oncreated } = $props();
+	let { cats, prefillDate = null, onclose, oncreated } = $props();
 
-	const maxDateTime = toDatetimeLocalValue(new Date());
+	const nowCeil = ceilToQuarterHour(new Date());
+	const maxDateTime = toDatetimeLocalValue(nowCeil);
+	const initialOccurred = prefillDate ? roundToQuarterHour(prefillDate) : nowCeil;
 
 	let selectedTypeKey = $state('puke');
 	let addingType = $state(false);
@@ -26,7 +28,7 @@
 	let savingNewType = $state(false);
 
 	let selectedCatId = $state(cats[0]?.id ?? null);
-	let occurredAt = $state(maxDateTime);
+	let occurredAt = $state(toDatetimeLocalValue(initialOccurred > nowCeil ? nowCeil : initialOccurred));
 	let content = $state('');
 	let amount = $state('');
 	let timing = $state('unknown');
@@ -228,6 +230,7 @@
 				bind:value={occurredAt}
 				min={minDateTime}
 				max={maxDateTime}
+				step="900"
 				required
 			/>
 		</label>
